@@ -1,0 +1,44 @@
+# Keeps the free Supabase database awake.
+# Every day it visits the database once. Once a week it also saves a small
+# note (keepalive.txt) so GitHub does not switch this job off.
+name: Keep database awake
+
+on:
+  schedule:
+    - cron: "17 5 * * *"   # every day at 09:17 Dubai time
+  workflow_dispatch:        # lets you run it by hand from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  visit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Visit the database
+        env:
+          URL: https://swinbdwzlhlzjxdwsflz.supabase.co
+          KEY: sb_publishable_oDYFIjCWpyYVelcTg8g30g_awwhUZMo
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" "$URL/rest/v1/items?select=id&limit=1" -H "apikey: $KEY")
+          echo "Database answered with code $code"
+          if [ "$code" != "200" ]; then
+            echo "::warning::The database did not answer normally (code $code). It may be paused. Open supabase.com and press Restore."
+          fi
+
+      - name: Get the files (weekly note only)
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule != '' 
+        uses: actions/checkout@v4
+
+      - name: Save weekly note
+        run: |
+          if [ "$(date -u +%u)" = "1" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            date -u +"Last keep-awake visit: %Y-%m-%d %H:%M UTC" > keepalive.txt
+            git config user.name "keep-awake bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add keepalive.txt
+            git commit -m "Weekly keep-awake note" || echo "Nothing to save"
+            git push || echo "Could not save note"
+          else
+            echo "Not the weekly day, no note needed"
+          fi
